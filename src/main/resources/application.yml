@@ -1,13 +1,19 @@
 spring:
   datasource:
+    #Telling springBoot , How to connect with PostgreSQL
     url: jdbc:postgresql://localhost:5432/chatdb
     username: chatuser
     password: chatpass
     driver-class-name: org.postgresql.Driver
+    #Telling to use PostgreSQL Driver to communicate with the databses
+
+    #This jpa part tells that "How should JPA/Hibernate should work with postgreSQL ?"
+  #At this point , We have already logged in
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: update #Entity classes are automatically updated to database tables
+
+    show-sql: true #Shows sql queries while executing
     properties:
       hibernate:
         format_sql: true

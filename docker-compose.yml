@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:15
+    #Docker fetched the image from the docker hub , IF not available
+    #Telling what to install in docker as a container
     container_name: chat-postgres
     environment:
       POSTGRES_DB: chatdb

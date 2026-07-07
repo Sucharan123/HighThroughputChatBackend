@@ -22,6 +22,7 @@ public class User {
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
+    //Instant is a datatype and Instant.now() return current time
 
     public Long getId() {
         return id;
