@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:15
-    #Docker fetched the image from the docker hub , IF not available
+    #Docker fetches the image from the docker hub , IF not available
     #Telling what to install in docker as a container
     container_name: chat-postgres
     environment:
@@ -16,3 +16,25 @@ services:
 
 volumes:
   pgdata:
+
+    services:
+      postgres:
+        image: postgres:15
+        container_name: chat-postgres
+        environment:
+          POSTGRES_DB: chatdb
+          POSTGRES_USER: chatuser
+          POSTGRES_PASSWORD: chatpass
+        ports:
+          - "5432:5432"
+        volumes:
+          - pgdata:/var/lib/postgresql/data
+
+      redis:
+        image: redis:7
+        container_name: chat-redis
+        ports:
+          - "6379:6379"
+
+    volumes:
+      pgdata:

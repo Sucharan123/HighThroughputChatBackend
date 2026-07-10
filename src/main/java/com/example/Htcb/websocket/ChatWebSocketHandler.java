@@ -1,7 +1,10 @@
 package com.example.Htcb.websocket;
-//This is kind of receptionist answering every call
+
+import com.example.Htcb.dto.ChatMessageRequest;
 import com.example.Htcb.security.JwtUtil;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -17,16 +20,20 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     @Autowired
     private JwtUtil jwtUtil;
 
-    // Maps userId -> their active WebSocket session
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     private final Map<Long, WebSocketSession> activeSessions = new ConcurrentHashMap<>();
-    //Here we checks the Wristband of every user who log in
-    //Whether they are legal users or not
+    private final Map<Long, Long> userRooms = new ConcurrentHashMap<>();
+
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
         Long userId = extractUserId(session);
         if (userId != null) {
             activeSessions.put(userId, session);
-            System.out.println("User connected: " + userId + " | Total online: " + activeSessions.size());
+            System.out.println("User connected: " + userId + " | Total online (this instance): " + activeSessions.size());
         } else {
             try {
                 session.close(CloseStatus.NOT_ACCEPTABLE);
@@ -35,17 +42,29 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         Long senderId = extractUserId(session);
-        String payload = message.getPayload();
-        System.out.println("Message from user " + senderId + ": " + payload);
+        if (senderId == null) return;
 
-        // For now: broadcast to every connected user (we'll restrict this to "same room" logic
-        // properly once Redis is introduced in Phase 3 — this simple version proves the wiring works)
-        for (WebSocketSession s : activeSessions.values()) {
-            if (s.isOpen()) {
-                s.sendMessage(new TextMessage("User " + senderId + " says: " + payload));
-            }
+        try {
+            ChatMessageRequest chatMessage = objectMapper.readValue(message.getPayload(), ChatMessageRequest.class);
+            Long roomId = chatMessage.getRoomId();
+            if (roomId == null) return;
+
+            userRooms.put(senderId, roomId);
+
+            String outgoingPayload = objectMapper.writeValueAsString(
+                    new OutgoingMessage(senderId, roomId, chatMessage.getContent())
+            );
+
+            // Instead of delivering locally, PUBLISH to Redis. Every instance (including this
+            // one) will receive it back via RedisMessageSubscriber and deliver to its own local users.
+            redisTemplate.convertAndSend("room:" + roomId, outgoingPayload);
+
+            System.out.println("Published to room:" + roomId + " -> " + outgoingPayload);
+
+        } catch (Exception e) {
+            System.out.println("Failed to process message from user " + senderId + ": " + e.getMessage());
         }
     }
 
@@ -54,7 +73,27 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         Long userId = extractUserId(session);
         if (userId != null) {
             activeSessions.remove(userId);
-            System.out.println("User disconnected: " + userId + " | Total online: " + activeSessions.size());
+            userRooms.remove(userId);
+            System.out.println("User disconnected: " + userId);
+        }
+    }
+
+    // Called by RedisMessageSubscriber whenever ANY instance publishes to a room this instance cares about
+    public void deliverToLocalUsersInRoom(Long roomId, String payload) {
+        for (Map.Entry<Long, Long> entry : userRooms.entrySet()) {
+            Long recipientUserId = entry.getKey();
+            Long recipientRoom = entry.getValue();
+
+            if (recipientRoom.equals(roomId)) {
+                WebSocketSession recipientSession = activeSessions.get(recipientUserId);
+                if (recipientSession != null && recipientSession.isOpen()) {
+                    try {
+                        recipientSession.sendMessage(new TextMessage(payload));
+                    } catch (Exception e) {
+                        System.out.println("Failed to deliver to user " + recipientUserId + ": " + e.getMessage());
+                    }
+                }
+            }
         }
     }
 
@@ -68,4 +107,6 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         }
         return null;
     }
+
+    private record OutgoingMessage(Long senderId, Long roomId, String content) {}
 }

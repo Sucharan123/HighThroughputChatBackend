@@ -29,5 +29,6 @@ public class AuthController {
         User user = authService.validateLogin(request.getUsername(), request.getPassword());
         String token = jwtUtil.generateToken(user.getId(), user.getUsername());
         return new AuthResponse(token);
+        //returns the token
     }
 }
